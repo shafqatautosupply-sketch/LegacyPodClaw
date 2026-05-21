@@ -295,7 +295,8 @@ OPENAI_COMPAT_PROVIDER(OCDeepseekProvider, "deepseek", "Deepseek", "https://api.
 - (instancetype)init {
     if ((self = [super init])) {
         _providerMap = [[NSMutableDictionary alloc] initWithCapacity:12];
-        _defaultProviderId = [@"anthropic" copy];
+        /* Default to Google instead of Anthropic */
+        _defaultProviderId = [@"google" copy];
     }
     return self;
 }
