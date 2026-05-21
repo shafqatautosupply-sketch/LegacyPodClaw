@@ -29,6 +29,7 @@
 			<array>
 				<string>anthropic</string>
 				<string>openai</string>
+				<string>google</string>
 				<string>ollama</string>
 				<string>custom</string>
 			</array>
@@ -36,6 +37,7 @@
 			<array>
 				<string>Anthropic</string>
 				<string>OpenAI</string>
+				<string>Google (Gemini)</string>
 				<string>Ollama (Local)</string>
 				<string>Custom Endpoint</string>
 			</array>
