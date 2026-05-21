@@ -24,9 +24,10 @@
 			<key>label</key>
 			<string>Provider</string>
 			<key>default</key>
-			<string>anthropic</string>
+			<string>google</string>
 			<key>validValues</key>
 			<array>
+				<string>google</string>
 				<string>anthropic</string>
 				<string>openai</string>
 				<string>ollama</string>
@@ -34,6 +35,7 @@
 			</array>
 			<key>validTitles</key>
 			<array>
+				<string>Google Gemini</string>
 				<string>Anthropic</string>
 				<string>OpenAI</string>
 				<string>Ollama (Local)</string>
@@ -52,7 +54,7 @@
 			<key>label</key>
 			<string>API Key</string>
 			<key>placeholder</key>
-			<string>sk-ant-...</string>
+			<string>AIzaSy...</string>
 			<key>PostNotification</key>
 			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
 		</dict>
@@ -66,9 +68,9 @@
 			<key>label</key>
 			<string>Model ID</string>
 			<key>placeholder</key>
-			<string>claude-sonnet-4-20250514</string>
+			<string>gemini-2.5-flash</string>
 			<key>default</key>
-			<string>claude-sonnet-4-20250514</string>
+			<string>gemini-2.5-flash</string>
 			<key>PostNotification</key>
 			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
 		</dict>
@@ -82,7 +84,7 @@
 			<key>label</key>
 			<string>Custom URL</string>
 			<key>placeholder</key>
-			<string>https://api.anthropic.com</string>
+			<string>https://generativelanguage.googleapis.com</string>
 			<key>PostNotification</key>
 			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
 		</dict>
@@ -102,14 +104,14 @@
 			<string>pro.matthesketh.legacypodclaw</string>
 			<key>key</key>
 			<string>maxContextTokens</string>
-			<key>default</key>
-			<integer>2048</integer>
-			<key>min</key>
-			<integer>512</integer>
-			<key>max</key>
-			<integer>8192</integer>
 			<key>label</key>
-			<string>Max Context Tokens</string>
+			<string>Context Tokens</string>
+			<key>default</key>
+			<integer>8192</integer>
+			<key>min</key>
+			<integer>2048</integer>
+			<key>max</key>
+			<integer>32768</integer>
 			<key>PostNotification</key>
 			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
 		</dict>
@@ -120,79 +122,17 @@
 			<string>pro.matthesketh.legacypodclaw</string>
 			<key>key</key>
 			<string>maxResponseTokens</string>
+			<key>label</key>
+			<string>Response Tokens</string>
 			<key>default</key>
-			<integer>512</integer>
-			<key>min</key>
-			<integer>128</integer>
-			<key>max</key>
 			<integer>4096</integer>
-			<key>label</key>
-			<string>Max Response Tokens</string>
-			<key>PostNotification</key>
-			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
-		</dict>
-
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Music Downloads</string>
-			<key>footerText</key>
-			<string>Run music_proxy.py on a computer on your network, then enter its URL here. Required for downloading songs from YouTube.</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSEditTextCell</string>
-			<key>defaults</key>
-			<string>pro.matthesketh.legacypodclaw</string>
-			<key>key</key>
-			<string>musicProxyURL</string>
-			<key>label</key>
-			<string>Music Proxy URL</string>
-			<key>placeholder</key>
-			<string>http://192.168.1.x:18790</string>
-			<key>PostNotification</key>
-			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
-		</dict>
-
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>MCP Servers</string>
-			<key>footerText</key>
-			<string>Connect to Model Context Protocol servers for additional tools.</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSEditTextCell</string>
-			<key>defaults</key>
-			<string>pro.matthesketh.legacypodclaw</string>
-			<key>key</key>
-			<string>mcpServer1</string>
-			<key>label</key>
-			<string>Server 1</string>
-			<key>placeholder</key>
-			<string>http://host:port/mcp</string>
-			<key>PostNotification</key>
-			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSEditTextCell</string>
-			<key>defaults</key>
-			<string>pro.matthesketh.legacypodclaw</string>
-			<key>key</key>
-			<string>mcpServer2</string>
-			<key>label</key>
-			<string>Server 2</string>
-			<key>placeholder</key>
-			<string>http://host:port/mcp</string>
+			<key>min</key>
+			<integer>512</integer>
+			<key>max</key>
+			<integer>16384</integer>
 			<key>PostNotification</key>
 			<string>pro.matthesketh.legacypodclaw/prefsChanged</string>
 		</dict>
 	</array>
-	<key>title</key>
-	<string>Local Agent</string>
 </dict>
 </plist>
