@@ -174,7 +174,7 @@
 }
 - (void)chatCompletion:(NSDictionary *)request onChunk:(OCProviderStreamBlock)c
             completion:(OCProviderCompletionBlock)comp {
-    NSString *model = [request objectForKey:@"model"] ?: @"gemini-2.5-flash";
+    NSString *model = [request objectForKey:@"model"] ?: @"gemini-3.1-flash-lite";
     NSString *url = [NSString stringWithFormat:@"%@/v1beta/models/%@:generateContent?key=%@",
                      self.baseURL, model, self.apiKey];
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]
@@ -192,7 +192,7 @@
     [req setHTTPBody:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]];
     [(_OCBaseProvider *)self _sendRequest:req stream:NO onChunk:nil completion:comp];
 }
-- (NSArray *)availableModels { return @[@"gemini-2.5-flash", @"gemini-2.5-pro", @"gemini-2.0-flash"]; }
+- (NSArray *)availableModels { return @[@"gemini-3.1-flash-lite", @"gemini-3.1-flash", @"gemini-3.1-pro", @"gemini-2.5-flash", @"gemini-2.5-pro", @"gemini-2.0-flash"]; }
 @end
 
 #pragma mark - Ollama
