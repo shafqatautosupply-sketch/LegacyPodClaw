@@ -22,6 +22,7 @@
 typedef NS_ENUM(NSUInteger, OCModelProvider) {
     OCModelProviderAnthropic = 0,
     OCModelProviderOpenAI,
+    OCModelProviderGoogle,
     OCModelProviderOllama,
     OCModelProviderCustom
 };
@@ -106,8 +107,8 @@ typedef NS_ENUM(NSUInteger, OCAgentMessageRole) {
 - (void)disconnect;
 
 - (void)callTool:(NSString *)toolName
-          params:(NSDictionary *)params
-        callback:(OCToolResultBlock)callback;
+           params:(NSDictionary *)params
+         callback:(OCToolResultBlock)callback;
 
 - (void)listTools:(void(^)(NSArray *tools, NSError *error))callback;
 
@@ -171,12 +172,12 @@ typedef NS_ENUM(NSUInteger, OCAgentMessageRole) {
 
 /* Streaming chat completion. onChunk called for each SSE data line. */
 - (void)chatCompletion:(NSDictionary *)requestBody
-               onChunk:(void(^)(NSDictionary *chunk))onChunk
-            completion:(void(^)(NSDictionary *fullResponse, NSError *error))completion;
+                onChunk:(void(^)(NSDictionary *chunk))onChunk
+             completion:(void(^)(NSDictionary *fullResponse, NSError *error))completion;
 
 /* Non-streaming chat completion. */
 - (void)chatCompletionSync:(NSDictionary *)requestBody
-                completion:(void(^)(NSDictionary *response, NSError *error))completion;
+                 completion:(void(^)(NSDictionary *response, NSError *error))completion;
 
 - (void)cancel;
 
