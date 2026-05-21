@@ -1,6 +1,6 @@
 /*
  * OCProviderRegistry.m
- * LegacyPodClaw - Multi-Provider Implementation
+ * LegacyPodClaw - Multi-Provider Implementation (Google/Gemini Only)
  *
  * All providers use the same pattern: HTTP POST to chat completion endpoint.
  * The only differences are URL, headers, and request body format.
@@ -98,75 +98,13 @@
 
 @end
 
-#pragma mark - Anthropic
-
-@implementation OCAnthropicProvider
-- (instancetype)initWithApiKey:(NSString *)key {
-    if ((self = [super init])) {
-        ((_OCBaseProvider *)self)->_providerId = [@"anthropic" retain];
-        ((_OCBaseProvider *)self)->_displayName = [@"Anthropic" retain];
-        ((_OCBaseProvider *)self)->_apiKey = [key copy];
-        ((_OCBaseProvider *)self)->_baseURL = [@"https://api.anthropic.com" retain];
-    }
-    return self;
-}
-- (void)chatCompletion:(NSDictionary *)request onChunk:(OCProviderStreamBlock)c
-            completion:(OCProviderCompletionBlock)comp {
-    NSString *url = [NSString stringWithFormat:@"%@/v1/messages", self.baseURL];
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]
-        cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:120];
-    [req setHTTPMethod:@"POST"];
-    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [req setValue:@"2023-06-01" forHTTPHeaderField:@"anthropic-version"];
-    [req setValue:self.apiKey forHTTPHeaderField:@"x-api-key"];
-    if (c) [req setValue:@"text/event-stream" forHTTPHeaderField:@"Accept"];
-    NSMutableDictionary *body = [request mutableCopy];
-    if (c) [body setObject:@YES forKey:@"stream"];
-    [req setHTTPBody:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]];
-    [body release];
-    [(_OCBaseProvider *)self _sendRequest:req stream:c!=nil onChunk:c completion:comp];
-}
-- (NSArray *)availableModels {
-    return @[@"claude-sonnet-4-20250514", @"claude-haiku-4-5-20251001", @"claude-opus-4-20250514"];
-}
-@end
-
-#pragma mark - OpenAI
-
-@implementation OCOpenAIProvider
-- (instancetype)initWithApiKey:(NSString *)key {
-    if ((self = [super init])) {
-        ((_OCBaseProvider *)self)->_providerId = [@"openai" retain];
-        ((_OCBaseProvider *)self)->_displayName = [@"OpenAI" retain];
-        ((_OCBaseProvider *)self)->_apiKey = [key copy];
-        ((_OCBaseProvider *)self)->_baseURL = [@"https://api.openai.com" retain];
-    }
-    return self;
-}
-- (void)chatCompletion:(NSDictionary *)request onChunk:(OCProviderStreamBlock)c
-            completion:(OCProviderCompletionBlock)comp {
-    NSString *url = [NSString stringWithFormat:@"%@/v1/chat/completions", self.baseURL];
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]
-        cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:120];
-    [req setHTTPMethod:@"POST"];
-    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [req setValue:[NSString stringWithFormat:@"Bearer %@", self.apiKey] forHTTPHeaderField:@"Authorization"];
-    NSMutableDictionary *body = [request mutableCopy];
-    if (c) [body setObject:@YES forKey:@"stream"];
-    [req setHTTPBody:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]];
-    [body release];
-    [(_OCBaseProvider *)self _sendRequest:req stream:c!=nil onChunk:c completion:comp];
-}
-- (NSArray *)availableModels { return @[@"gpt-4o", @"gpt-4o-mini", @"gpt-4-turbo", @"o1", @"o3-mini"]; }
-@end
-
 #pragma mark - Google/Gemini
 
 @implementation OCGoogleProvider
 - (instancetype)initWithApiKey:(NSString *)key {
     if ((self = [super init])) {
         ((_OCBaseProvider *)self)->_providerId = [@"google" retain];
-        ((_OCBaseProvider *)self)->_displayName = [@"Google" retain];
+        ((_OCBaseProvider *)self)->_displayName = [@"Google Gemini" retain];
         ((_OCBaseProvider *)self)->_apiKey = [key copy];
         ((_OCBaseProvider *)self)->_baseURL = [@"https://generativelanguage.googleapis.com" retain];
     }
@@ -192,7 +130,9 @@
     [req setHTTPBody:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]];
     [(_OCBaseProvider *)self _sendRequest:req stream:NO onChunk:nil completion:comp];
 }
-- (NSArray *)availableModels { return @[@"gemini-3.1-flash-lite", @"gemini-3.1-flash", @"gemini-3.1-pro", @"gemini-2.5-flash", @"gemini-2.5-pro", @"gemini-2.0-flash"]; }
+- (NSArray *)availableModels { 
+    return @[@"gemini-3.1-flash-lite", @"gemini-3.1-flash", @"gemini-3.1-pro", @"gemini-2.5-flash", @"gemini-2.5-pro", @"gemini-2.0-flash"]; 
+}
 @end
 
 #pragma mark - Ollama
@@ -222,40 +162,6 @@
 }
 - (NSArray *)availableModels { return @[@"llama3.1", @"mistral", @"codellama", @"phi3"]; }
 @end
-
-#pragma mark - Groq, Together, OpenRouter, Mistral, Deepseek (OpenAI-compatible)
-
-#define OPENAI_COMPAT_PROVIDER(CLASS, PID, DNAME, URL) \
-@implementation CLASS \
-- (instancetype)initWithApiKey:(NSString *)key { \
-    if ((self = [super init])) { \
-        ((_OCBaseProvider *)self)->_providerId = [@PID retain]; \
-        ((_OCBaseProvider *)self)->_displayName = [@DNAME retain]; \
-        ((_OCBaseProvider *)self)->_apiKey = [key copy]; \
-        ((_OCBaseProvider *)self)->_baseURL = [@URL retain]; \
-    } return self; \
-} \
-- (void)chatCompletion:(NSDictionary *)request onChunk:(OCProviderStreamBlock)c \
-            completion:(OCProviderCompletionBlock)comp { \
-    NSString *url = [NSString stringWithFormat:@"%@/v1/chat/completions", self.baseURL]; \
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url] \
-        cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:120]; \
-    [req setHTTPMethod:@"POST"]; \
-    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"]; \
-    [req setValue:[NSString stringWithFormat:@"Bearer %@", self.apiKey] forHTTPHeaderField:@"Authorization"]; \
-    NSMutableDictionary *body = [request mutableCopy]; \
-    if (c) [body setObject:@YES forKey:@"stream"]; \
-    [req setHTTPBody:[NSJSONSerialization dataWithJSONObject:body options:0 error:nil]]; \
-    [body release]; \
-    [(_OCBaseProvider *)self _sendRequest:req stream:c!=nil onChunk:c completion:comp]; \
-} \
-@end
-
-OPENAI_COMPAT_PROVIDER(OCGroqProvider, "groq", "Groq", "https://api.groq.com/openai")
-OPENAI_COMPAT_PROVIDER(OCTogetherProvider, "together", "Together AI", "https://api.together.xyz")
-OPENAI_COMPAT_PROVIDER(OCOpenRouterProvider, "openrouter", "OpenRouter", "https://openrouter.ai/api")
-OPENAI_COMPAT_PROVIDER(OCMistralProvider, "mistral", "Mistral", "https://api.mistral.ai")
-OPENAI_COMPAT_PROVIDER(OCDeepseekProvider, "deepseek", "Deepseek", "https://api.deepseek.com")
 
 #pragma mark - Custom Provider
 
@@ -295,7 +201,7 @@ OPENAI_COMPAT_PROVIDER(OCDeepseekProvider, "deepseek", "Deepseek", "https://api.
 - (instancetype)init {
     if ((self = [super init])) {
         _providerMap = [[NSMutableDictionary alloc] initWithCapacity:12];
-        /* Default to Google instead of Anthropic */
+        /* Default to Google Gemini */
         _defaultProviderId = [@"google" copy];
     }
     return self;
@@ -310,14 +216,10 @@ OPENAI_COMPAT_PROVIDER(OCDeepseekProvider, "deepseek", "Deepseek", "https://api.
 
 - (id<OCModelProvider>)providerForModel:(NSString *)modelId {
     if (!modelId) return [self defaultProvider];
-    /* Route by model prefix */
-    if ([modelId hasPrefix:@"claude"]) return [_providerMap objectForKey:@"anthropic"];
-    if ([modelId hasPrefix:@"gpt"] || [modelId hasPrefix:@"o1"] || [modelId hasPrefix:@"o3"])
-        return [_providerMap objectForKey:@"openai"];
+    /* Route by model prefix - default to Google */
     if ([modelId hasPrefix:@"gemini"]) return [_providerMap objectForKey:@"google"];
     if ([modelId hasPrefix:@"llama"] || [modelId hasPrefix:@"mistral"] || [modelId hasPrefix:@"phi"])
-        return [_providerMap objectForKey:@"ollama"] ?: [_providerMap objectForKey:@"groq"];
-    if ([modelId hasPrefix:@"deepseek"]) return [_providerMap objectForKey:@"deepseek"];
+        return [_providerMap objectForKey:@"ollama"];
     return [self defaultProvider];
 }
 
