@@ -403,16 +403,8 @@ static void _persistOverlayMessage(NSString *content, int role) {
     /* Trim history to last 10 messages to fit context window */
     while ([_conversationHistory count] > 10) [_conversationHistory removeObjectAtIndex:0];
 
-    /* Use wolfSSL TLS 1.2 directly (iOS 6 system TLS is broken) */
+    /* Google Gemini API payload - ONLY valid fields for streamGenerateContent */
     NSDictionary *body = @{
-        @"model": model,
-        @"max_tokens": @(1024),
-        @"stream": @YES,
-        @"system": @"You are LegacyPodClaw (Molty), an AI assistant on a jailbroken iOS 6 device. "
-                    "You appear as a quick-access overlay. Be concise. "
-                    "You have full system access. For tasks needing tools (file ops, bash, notes, reminders, "
-                    "system control), direct the user to the LegacyPodClaw app where all tools are available. "
-                    "In this overlay you can answer questions, have conversations, and give advice.",
         @"contents": @[
             @{
                 @"role": @"user",
@@ -420,7 +412,10 @@ static void _persistOverlayMessage(NSString *content, int role) {
                     @{@"text": q}
                 ]
             }
-        ]
+        ],
+        @"generationConfig": @{
+            @"maxOutputTokens": @(1024)
+        }
     };
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
 
