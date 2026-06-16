@@ -494,76 +494,94 @@ static void _persistOverlayMessage(NSString *content, int role) {
         });
 
         /* Send HTTP request */
-        wolfSSL_write(ssl, [httpReqData bytes], (int)[httpReqData length]);
-        wolfSSL_write(ssl, [bodyData bytes], (int)[bodyData length]);
+        int writtenReq = wolfSSL_write(ssl, (const unsigned char *)[httpReqData bytes], (int)[httpReqData length]);
+        int writtenBody = wolfSSL_write(ssl, (const unsigned char *)[bodyData bytes], (int)[bodyData length]);
+        
+        NSLog(@"[LegacyPodClaw] Sent HTTP request: %d bytes, body: %d bytes", writtenReq, writtenBody);
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            _responseArea.text = @"Request sent, waiting for response...";
+            _responseArea.text = @"Request sent, waiting for response...\n\n(Reading...)";
         });
 
-        /* Read response - Google Gemini returns newline-delimited JSON objects */
+        /* Read response with non-blocking mode and timeout */
         char buf[4096];
         BOOL headersDone = NO;
         NSMutableData *headerBuf = [NSMutableData dataWithCapacity:2048];
         int httpStatus = 0;
-        int readTimeoutCount = 0;
-        const int READ_TIMEOUT_LIMIT = 30; /* 30 * 100ms = 3 seconds */
+        int totalBytesRead = 0;
+        int consecutiveZeroReads = 0;
+        const int MAX_ZERO_READS = 100; /* 100 × 50ms = 5 seconds */
+
+        /* Set non-blocking mode */
+        fcntl(sock, F_SETFL, O_NONBLOCK);
+        
+        /* Set read timeout on socket */
+        struct timeval tv;
+        tv.tv_sec = 10; /* 10 second timeout */
+        tv.tv_usec = 0;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
 
         while (1) {
-            int n = wolfSSL_read(ssl, buf, sizeof(buf));
+            int n = wolfSSL_read(ssl, (unsigned char *)buf, sizeof(buf));
             
-            if (n == 0) {
-                /* Connection closed - check if we're done or timed out */
-                readTimeoutCount++;
-                if (readTimeoutCount > READ_TIMEOUT_LIMIT) {
-                    NSLog(@"[LegacyPodClaw] Read timeout - connection idle");
+            if (n > 0) {
+                totalBytesRead += n;
+                consecutiveZeroReads = 0;
+                NSLog(@"[LegacyPodClaw] Read %d bytes (total: %d)", n, totalBytesRead);
+
+                if (!headersDone) {
+                    [headerBuf appendBytes:buf length:n];
+                    const uint8_t *bytes = (const uint8_t *)[headerBuf bytes];
+                    NSUInteger len = [headerBuf length];
+                    
+                    for (NSUInteger i = 0; i + 3 < len; i++) {
+                        if (bytes[i]=='\r' && bytes[i+1]=='\n' && bytes[i+2]=='\r' && bytes[i+3]=='\n') {
+                            headersDone = YES;
+
+                            /* Parse status code */
+                            NSString *headerStr = [[NSString alloc] initWithBytes:bytes
+                                length:i encoding:NSUTF8StringEncoding];
+                            if ([headerStr length] > 12) {
+                                httpStatus = [[headerStr substringWithRange:NSMakeRange(9, 3)] intValue];
+                            }
+                            NSLog(@"[LegacyPodClaw] HTTP Status: %d", httpStatus);
+                            NSLog(@"[LegacyPodClaw] Headers:\n%@", headerStr);
+                            [headerStr release];
+
+                            /* Remaining data after headers goes to response buffer */
+                            if (i + 4 < len) {
+                                [_rawResponseBuf appendBytes:bytes+i+4 length:len-i-4];
+                                NSLog(@"[LegacyPodClaw] Initial body: %lu bytes", (unsigned long)(len-i-4));
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    [_rawResponseBuf appendBytes:buf length:n];
+                }
+            } else if (n == SSL_ERROR_WANT_READ || n == 0) {
+                consecutiveZeroReads++;
+                if (consecutiveZeroReads > MAX_ZERO_READS) {
+                    NSLog(@"[LegacyPodClaw] Timeout: No data received after 5 seconds");
                     break;
                 }
-                usleep(100000); /* 100ms wait, then try again */
-                continue;
-            }
-            
-            if (n < 0) {
-                int err = wolfSSL_get_error(ssl, n);
-                if (err == SSL_ERROR_WANT_READ) {
-                    usleep(50000);
-                    continue;
-                }
-                break; /* Actual error, exit */
-            }
-
-            readTimeoutCount = 0; /* Reset timeout on successful read */
-
-            if (!headersDone) {
-                [headerBuf appendBytes:buf length:n];
-                const uint8_t *bytes = (const uint8_t *)[headerBuf bytes];
-                NSUInteger len = [headerBuf length];
-                
-                for (NSUInteger i = 0; i + 3 < len; i++) {
-                    if (bytes[i]=='\r' && bytes[i+1]=='\n' && bytes[i+2]=='\r' && bytes[i+3]=='\n') {
-                        headersDone = YES;
-
-                        /* Parse status code */
-                        NSString *headerStr = [[NSString alloc] initWithBytes:bytes
-                            length:i encoding:NSUTF8StringEncoding];
-                        if ([headerStr length] > 12) {
-                            httpStatus = [[headerStr substringWithRange:NSMakeRange(9, 3)] intValue];
-                        }
-                        [headerStr release];
-
-                        NSLog(@"[LegacyPodClaw] HTTP Status: %d", httpStatus);
-
-                        /* Remaining data after headers goes to response buffer */
-                        if (i + 4 < len) {
-                            [_rawResponseBuf appendBytes:bytes+i+4 length:len-i-4];
-                        }
-                        break;
-                    }
-                }
+                usleep(50000); /* 50ms wait */
             } else {
-                [_rawResponseBuf appendBytes:buf length:n];
+                int err = wolfSSL_get_error(ssl, n);
+                NSLog(@"[LegacyPodClaw] SSL read error: %d", err);
+                if (err == SSL_ERROR_ZERO_RETURN) {
+                    NSLog(@"[LegacyPodClaw] Connection closed by peer");
+                    break;
+                }
+                if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
+                    break;
+                }
+                usleep(50000);
             }
         }
+
+        NSLog(@"[LegacyPodClaw] Total bytes read: %d, response buffer: %lu bytes", 
+              totalBytesRead, (unsigned long)[_rawResponseBuf length]);
 
         /* Check for HTTP errors */
         if (httpStatus != 200) {
@@ -580,9 +598,14 @@ static void _persistOverlayMessage(NSString *content, int role) {
         /* Parse Google Gemini streaming response - newline-delimited JSON objects */
         NSString *rawBody = [[NSString alloc] initWithData:_rawResponseBuf encoding:NSUTF8StringEncoding];
         if (rawBody && [rawBody length] > 0) {
-            NSLog(@"[LegacyPodClaw] Raw response length: %lu", (unsigned long)[rawBody length]);
+            NSLog(@"[LegacyPodClaw] Raw response (first 500 chars):\n%@", 
+                  [rawBody substringToIndex:MIN(500, [rawBody length])]);
             [self _processGeminiStream:rawBody];
             [rawBody release];
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self _showResult:@"Empty response from API"];
+            });
         }
 
         wolfSSL_shutdown(ssl);
