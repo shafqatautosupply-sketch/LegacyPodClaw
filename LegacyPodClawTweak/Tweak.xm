@@ -145,7 +145,7 @@ static void _persistOverlayMessage(NSString *content, int role) {
     BOOL _isProcessing;
     NSMutableArray *_conversationHistory; /* Array of {role, content} dicts */
     NSMutableString *_streamBuf;
-    NSMutableString *_sseBuf;
+    NSMutableData *_rawResponseBuf;
     NSURLConnection *_conn;
 }
 @property (nonatomic, assign) BOOL isVisible;
@@ -159,7 +159,7 @@ static void _persistOverlayMessage(NSString *content, int role) {
     if ((self = [super initWithFrame:frame])) {
         self.userInteractionEnabled = YES;
         _streamBuf = [[NSMutableString alloc] init];
-        _sseBuf = [[NSMutableString alloc] init];
+        _rawResponseBuf = [[NSMutableData alloc] init];
         _conversationHistory = [[NSMutableArray alloc] initWithCapacity:20];
         CGFloat w = frame.size.width;
         CGFloat h = frame.size.height;
@@ -284,7 +284,7 @@ static void _persistOverlayMessage(NSString *content, int role) {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_dimView release]; [_panel release]; [_inputField release];
     [_responseArea release]; [_typingDots release]; [_closeBtn release];
-    [_streamBuf release]; [_sseBuf release]; [_conn release];
+    [_streamBuf release]; [_rawResponseBuf release]; [_conn release];
     [super dealloc];
 }
 
@@ -382,7 +382,7 @@ static void _persistOverlayMessage(NSString *content, int role) {
 
     _isProcessing = YES;
     [_streamBuf setString:@""];
-    [_sseBuf setString:@""];
+    [_rawResponseBuf setLength:0];
 
     /* Persist user message to app's DB */
     _ensureOverlaySession();
@@ -423,7 +423,6 @@ static void _persistOverlayMessage(NSString *content, int role) {
         @"POST /v1beta/models/%@:streamGenerateContent?key=%@ HTTP/1.1\r\n"
         @"Host: generativelanguage.googleapis.com\r\n"
         @"Content-Type: application/json\r\n"
-        @"Accept: text/event-stream\r\n"
         @"Content-Length: %lu\r\n"
         @"Connection: close\r\n"
         @"\r\n", model, apiKey, (unsigned long)[bodyData length]];
@@ -502,21 +501,44 @@ static void _persistOverlayMessage(NSString *content, int role) {
             _responseArea.text = @"Request sent, waiting for response...";
         });
 
-        /* Read response — handle chunked transfer encoding */
+        /* Read response - Google Gemini returns newline-delimited JSON objects */
         char buf[4096];
         BOOL headersDone = NO;
         NSMutableData *headerBuf = [NSMutableData dataWithCapacity:2048];
-        NSMutableData *bodyBuf = [NSMutableData dataWithCapacity:8192];
         int httpStatus = 0;
+        int readTimeoutCount = 0;
+        const int READ_TIMEOUT_LIMIT = 30; /* 30 * 100ms = 3 seconds */
 
         while (1) {
             int n = wolfSSL_read(ssl, buf, sizeof(buf));
-            if (n <= 0) break;
+            
+            if (n == 0) {
+                /* Connection closed - check if we're done or timed out */
+                readTimeoutCount++;
+                if (readTimeoutCount > READ_TIMEOUT_LIMIT) {
+                    NSLog(@"[LegacyPodClaw] Read timeout - connection idle");
+                    break;
+                }
+                usleep(100000); /* 100ms wait, then try again */
+                continue;
+            }
+            
+            if (n < 0) {
+                int err = wolfSSL_get_error(ssl, n);
+                if (err == SSL_ERROR_WANT_READ) {
+                    usleep(50000);
+                    continue;
+                }
+                break; /* Actual error, exit */
+            }
+
+            readTimeoutCount = 0; /* Reset timeout on successful read */
 
             if (!headersDone) {
                 [headerBuf appendBytes:buf length:n];
                 const uint8_t *bytes = (const uint8_t *)[headerBuf bytes];
                 NSUInteger len = [headerBuf length];
+                
                 for (NSUInteger i = 0; i + 3 < len; i++) {
                     if (bytes[i]=='\r' && bytes[i+1]=='\n' && bytes[i+2]=='\r' && bytes[i+3]=='\n') {
                         headersDone = YES;
@@ -529,21 +551,23 @@ static void _persistOverlayMessage(NSString *content, int role) {
                         }
                         [headerStr release];
 
-                        /* Remaining data after headers */
+                        NSLog(@"[LegacyPodClaw] HTTP Status: %d", httpStatus);
+
+                        /* Remaining data after headers goes to response buffer */
                         if (i + 4 < len) {
-                            [bodyBuf appendBytes:bytes+i+4 length:len-i-4];
+                            [_rawResponseBuf appendBytes:bytes+i+4 length:len-i-4];
                         }
                         break;
                     }
                 }
             } else {
-                [bodyBuf appendBytes:buf length:n];
+                [_rawResponseBuf appendBytes:buf length:n];
             }
         }
 
         /* Check for HTTP errors */
         if (httpStatus != 200) {
-            NSString *bodyStr = [[NSString alloc] initWithData:bodyBuf encoding:NSUTF8StringEncoding];
+            NSString *bodyStr = [[NSString alloc] initWithData:_rawResponseBuf encoding:NSUTF8StringEncoding];
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self _showResult:[NSString stringWithFormat:@"HTTP %d: %@",
                     httpStatus, bodyStr ?: @"Unknown error"]];
@@ -553,30 +577,11 @@ static void _persistOverlayMessage(NSString *content, int role) {
             return;
         }
 
-        /* Decode chunked transfer encoding if present.
-           Strip hex chunk size lines: lines that are only hex digits + optional \r */
-        NSString *rawBody = [[NSString alloc] initWithData:bodyBuf encoding:NSUTF8StringEncoding];
-        if (rawBody) {
-            /* Remove chunk size lines (hex digits followed by \r) */
-            NSMutableString *cleanBody = [NSMutableString stringWithCapacity:[rawBody length]];
-            NSArray *rawLines = [rawBody componentsSeparatedByString:@"\n"];
-            for (NSString *line in rawLines) {
-                NSString *trimmed = [line stringByTrimmingCharactersInSet:
-                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                /* Skip lines that are only hex digits (chunk sizes) or empty */
-                if ([trimmed length] == 0) { [cleanBody appendString:@"\n"]; continue; }
-                BOOL isChunkSize = YES;
-                for (NSUInteger ci = 0; ci < [trimmed length]; ci++) {
-                    unichar ch = [trimmed characterAtIndex:ci];
-                    if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))) {
-                        isChunkSize = NO; break;
-                    }
-                }
-                if (isChunkSize && [trimmed length] <= 8) continue; /* Skip chunk size */
-                [cleanBody appendString:line];
-                [cleanBody appendString:@"\n"];
-            }
-            [self _processSSEChunk:cleanBody];
+        /* Parse Google Gemini streaming response - newline-delimited JSON objects */
+        NSString *rawBody = [[NSString alloc] initWithData:_rawResponseBuf encoding:NSUTF8StringEncoding];
+        if (rawBody && [rawBody length] > 0) {
+            NSLog(@"[LegacyPodClaw] Raw response length: %lu", (unsigned long)[rawBody length]);
+            [self _processGeminiStream:rawBody];
             [rawBody release];
         }
 
@@ -597,44 +602,24 @@ static void _persistOverlayMessage(NSString *content, int role) {
     });
 }
 
-- (void)_processSSEChunk:(NSString *)chunk {
-    [_sseBuf appendString:chunk];
-    NSArray *lines = [_sseBuf componentsSeparatedByString:@"\n"];
-    [_sseBuf setString:[lines lastObject] ?: @""];
-
-    /* Debug: show raw first chunk if nothing streaming yet */
-    if ([_streamBuf length] == 0 && [chunk length] > 0 && [chunk length] < 200) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if ([_streamBuf length] == 0) {
-                _typingDots.hidden = YES;
-                _responseArea.textColor = [UIColor colorWithWhite:0.5f alpha:1];
-                _responseArea.text = [NSString stringWithFormat:@"[receiving data...]"];
-            }
-        });
-    }
-
-    for (NSUInteger i = 0; i < [lines count] - 1; i++) {
-        NSString *line = [lines objectAtIndex:i];
+/* Process Google Gemini streaming format: newline-delimited JSON objects */
+- (void)_processGeminiStream:(NSString *)rawStream {
+    NSArray *lines = [rawStream componentsSeparatedByString:@"\n"];
+    
+    for (NSString *line in lines) {
         NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         
         /* Skip empty lines */
         if ([trimmed length] == 0) continue;
         
-        /* Handle SSE format (data: prefix) */
-        NSString *json = nil;
-        if ([trimmed hasPrefix:@"data: "]) {
-            json = [trimmed substringFromIndex:6];
-            if ([json isEqualToString:@"[DONE]"]) continue;
-        } else {
-            /* Handle raw JSON format (Google Gemini) */
-            json = trimmed;
-        }
+        NSLog(@"[LegacyPodClaw] Processing line: %@", [trimmed substringToIndex:MIN(100, [trimmed length])]);
         
-        /* Try to parse JSON */
-        NSDictionary *evt = [NSJSONSerialization JSONObjectWithData:
-            [json dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+        /* Parse JSON object */
+        NSData *jsonData = [trimmed dataUsingEncoding:NSUTF8StringEncoding];
+        NSDictionary *evt = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil];
+        
         if (!evt) {
-            NSLog(@"[LegacyPodClaw] Failed to parse JSON: %@", json);
+            NSLog(@"[LegacyPodClaw] Failed to parse JSON: %@", trimmed);
             continue;
         }
         
@@ -644,11 +629,15 @@ static void _persistOverlayMessage(NSString *content, int role) {
             NSDictionary *candidate = [candidates objectAtIndex:0];
             NSDictionary *content = [candidate objectForKey:@"content"];
             NSArray *parts = [content objectForKey:@"parts"];
+            
             if (parts && [parts count] > 0) {
                 NSDictionary *part = [parts objectAtIndex:0];
                 NSString *text = [part objectForKey:@"text"];
-                if (text) {
+                
+                if (text && [text length] > 0) {
                     [_streamBuf appendString:text];
+                    NSLog(@"[LegacyPodClaw] Got text: %@", text);
+                    
                     dispatch_async(dispatch_get_main_queue(), ^{
                         _typingDots.hidden = YES;
                         _responseArea.textColor = [UIColor colorWithWhite:0.88f alpha:1];
